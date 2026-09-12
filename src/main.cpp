@@ -9,15 +9,25 @@
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <fstream>
+#include <filesystem> 
+#include <sstream>
+
+
+std::string g_directory;
 
 void handle_client(int client_fd) {
   size_t message_size = 1024;
   std::string message(message_size, '\0');
   recv(client_fd, (void*)&message[0], message.size(), 0);
 
-  std::string path;
+  std::string method;
   size_t methodEnd = message.find(" ");
   if (methodEnd != std::string::npos) {
+    method = message.substr(0, methodEnd);
+  }
+
+  std::string path;
+    if (methodEnd != std::string::npos) {
     int start = methodEnd + 1;
     int end = message.find(" ", start);
 
@@ -36,33 +46,56 @@ void handle_client(int client_fd) {
       user_agt = message.substr(start, end - start);
     }
   }
-
-  std::string dir;
-    size_t dir_idx = message.find(" ");
-  if (dir_idx != std::string::npos) {
-    int start = dir_idx + 1;
-    int end = message.find(" ", start);
+  int content_length = 0;
+  size_t content_length_pos = message.find("Content-Length: ");
+  if (content_length_pos != std::string::npos) {
+    int start = content_length_pos + 16;
+    int end = message.find("\r", start);
 
     if (end != std::string::npos) {
-      dir = message.substr(start, end - start);
+      content_length = std::stoi(message.substr(start, end - start));
     }
   }
 
-   std::ifstream file("dir");
-
-
+  std::string body;
+  size_t headers_end = message.find("\r\n\r\n");
+  if (headers_end != std::string::npos) {
+    body = message.substr(headers_end + 4, content_length);
+  }
+  
   std::string response;
-  if (path == "/") {
+  if (method == "GET" && path == "/") {
     response = "HTTP/1.1 200 OK\r\n\r\n";
-  } else if (path.find("/echo") != std::string::npos) {
+  } else if (method == "GET" && path.find("/echo") != std::string::npos) {
     std::string content = path.substr(6);
     response = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length:" + std::to_string(content.size()) + "\r\n\r\n" + content;
-  } else if (path.find("/user-agent") != std::string::npos) {
+  } else if (method == "GET" && path.find("/user-agent") != std::string::npos) {
     response = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length:" + std::to_string(user_agt.size()) + "\r\n\r\n" + user_agt;
-  } else if( dir!= " " && file){
-    response = "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length:" + 13 + "\r\n\r\n" + Hello, World!
+  } else if (method == "GET" && path.find("/files/") == 0) {
+    std::string filename = path.substr(7);
+    std::string full_path = g_directory + "/" + filename;
+    std::ifstream file(full_path, std::ios::binary);
+    if (file) {
+      std::uintmax_t size = std::filesystem::file_size(full_path);
+      std::stringstream buffer;
+      buffer << file.rdbuf();
+      std::string file_contents = buffer.str();
 
-  }else {
+      response = "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: " + std::to_string(size) + "\r\n\r\n" + file_contents;
+    }else{
+       response = "HTTP/1.1 404 Not Found\r\n\r\n"; 
+    }
+  }else if (method == "POST" && path.find("/files/") == 0) {
+    std::string filename = path.substr(7);
+    std::string full_path = g_directory + "/" + filename;
+
+    std::ofstream outfile(full_path, std::ios::binary);
+    outfile << body;
+    outfile.close();
+
+    response = "HTTP/1.1 201 Created\r\n\r\n";
+
+  }else{
     response = "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n";
   }
 
@@ -77,6 +110,13 @@ int main(int argc, char **argv) {
 
   // You can use print statements as follows for debugging, they'll be visible when running tests.
   std::cout << "Logs from your program will appear here!\n";
+
+  for (int i = 1; i < argc; i++) {
+    if (std::string(argv[i]) == "--directory" && i + 1 < argc) {
+      g_directory = argv[i + 1];
+    }
+  }
+
 
 
   //syscall to create a new endpoint
