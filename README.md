@@ -1,6 +1,6 @@
 # http-server-cpp
 
-A small HTTP/1.1 server written from scratch in C++, using raw POSIX sockets — no libcurl, no Boost.Asio, no frameworks. I built this to get my hands dirty with the stuff that usually hides behind a library: parsing an HTTP request byte by byte, handling multiple clients at once, and figuring out where a naive implementation quietly breaks.
+A small HTTP/1.1 server written from scratch in C++, using raw POSIX sockets. I built this to get my hands dirty with the stuff that usually hides behind a library: parsing an HTTP request byte by byte, handling multiple clients at once, and figuring out where a naive implementation quietly breaks.So along the way I ended up working through port binding and basic responses, URL/header parsing, concurrent connections, serving and writing files, HTTP compression (gzip, with support for multiple encoding schemes), and persistent (keep-alive) connections,including handling several of them concurrently and closing them cleanly. 
 
 ## What it actually does
 
