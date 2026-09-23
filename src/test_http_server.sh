@@ -9,10 +9,10 @@
 #   404 fallback for unknown routes
 #
 # Usage:
-#   Place this file anywhere and run it from the project root, e.g.:
-#     cp test_http_server.sh /path/to/codecrafters-http-server-cpp/
-#     cd /path/to/codecrafters-http-server-cpp
-#     ./test_http_server.sh
+#   Run it straight from the repo, no separate build step needed:
+#     ./src/test_http_server.sh
+#   It compiles src/main.cpp itself (g++ by default; set CXX to override)
+#   and cleans up the binary and temp dirs when it's done.
 #
 set -u
 
@@ -20,6 +20,7 @@ ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PORT=4221
 HOST=127.0.0.1
 FILES_DIR="$(mktemp -d)"
+OUTSIDE_DIR="$(mktemp -d)"
 SERVER_PID=""
 PASS=0
 FAIL=0
@@ -29,7 +30,7 @@ cleanup() {
     kill "$SERVER_PID" >/dev/null 2>&1
     wait "$SERVER_PID" 2>/dev/null
   fi
-  rm -rf "$FILES_DIR"
+  rm -rf "$FILES_DIR" "$OUTSIDE_DIR" "$ROOT_DIR/http-server"
 }
 trap cleanup EXIT
 
@@ -58,14 +59,12 @@ assert_contains() {
 # Build + start server
 # ---------------------------------------------------------------------------
 echo "Building..."
-if [ -n "${VCPKG_ROOT:-}" ]; then
-  cmake -B "$ROOT_DIR/build" -S "$ROOT_DIR" -DCMAKE_TOOLCHAIN_FILE="${VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake" >/tmp/build.log 2>&1
-else
-  cmake -B "$ROOT_DIR/build" -S "$ROOT_DIR" >/tmp/build.log 2>&1
-fi
-cmake --build "$ROOT_DIR/build" >>/tmp/build.log 2>&1 || { echo "Build failed, see /tmp/build.log"; cat /tmp/build.log; exit 1; }
+CXX="${CXX:-g++}"
+BUILD_LOG="$(mktemp)"
+"$CXX" -std=c++17 -pthread "$ROOT_DIR/main.cpp" -lz -o "$ROOT_DIR/http-server" >"$BUILD_LOG" 2>&1 \
+  || { echo "Build failed, see $BUILD_LOG"; cat "$BUILD_LOG"; exit 1; }
 
-"$ROOT_DIR/build/http-server" --directory "$FILES_DIR" &
+"$ROOT_DIR/http-server" --directory "$FILES_DIR" &
 SERVER_PID=$!
 sleep 0.5
 
@@ -149,12 +148,17 @@ assert_eq "GET /files/does_not_exist.txt returns 404" "404" "$status"
 # ---------------------------------------------------------------------------
 # 6. Directory traversal safety check (currently NOT protected against)
 # ---------------------------------------------------------------------------
-echo "Test: GET /files/../main.cpp (path traversal)"
-status=$(curl -s -o /dev/null -w "%{http_code}" "http://$HOST:$PORT/files/../src/main.cpp")
-if [ "$status" == "200" ]; then
-  fail "path traversal is possible: /files/../src/main.cpp returned 200 (no sanitization of filename)"
+# OUTSIDE_DIR and FILES_DIR are sibling temp dirs (same parent), so this is a
+# real containment check rather than a guess at repo layout.
+echo "outside-secret" > "$OUTSIDE_DIR/secret.txt"
+OUTSIDE_NAME="$(basename "$OUTSIDE_DIR")"
+
+echo "Test: GET /files/../{outside_dir}/secret.txt (path traversal)"
+body=$(curl -s "http://$HOST:$PORT/files/../$OUTSIDE_NAME/secret.txt")
+if [ "$body" == "outside-secret" ]; then
+  fail "path traversal is possible: escaped FILES_DIR and read a sibling directory (no sanitization of filename)"
 else
-  pass "path traversal blocked (status $status)"
+  pass "path traversal blocked (server did not return the outside file's contents)"
 fi
 
 # ---------------------------------------------------------------------------
