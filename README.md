@@ -22,9 +22,6 @@ Every connection is handled on its own thread (`std::thread` + `detach`), and co
 - **`Router`** is basically a Strategy pattern — each route is registered with a method, a path-matching rule (exact / prefix / contains), and a handler function. Adding a new endpoint just means adding one line in `buildRouter()`, not touching the dispatch logic.
 - Handlers live in the `handlers` namespace and are kept deliberately dumb — one job each.
 
-
-This started as my solution to the [CodeCrafters "Build Your Own HTTP Server" challenge](https://codecrafters.io/challenges/http-server), so along the way I ended up working through port binding and basic responses, URL/header parsing, concurrent connections, serving and writing files, HTTP compression (gzip, with support for multiple encoding schemes), and persistent (keep-alive) connections — including handling several of them concurrently and closing them cleanly.
-
 ## Why this exists
 
 I wanted a project that forced me to actually understand sockets, threading, and the HTTP spec instead of importing something that hides it all. It's rough around the edges in the ways listed above, and that's intentional and it's a working snapshot of a systems-level C++ project I'm actively iterating on, not a finished product.
